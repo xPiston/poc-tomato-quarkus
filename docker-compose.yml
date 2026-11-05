@@ -1,0 +1,82 @@
+# Trois conteneurs, plus le frontend.
+#
+# Les POC hexagonaux de la famille en ont un quatrieme : un "scheduler" qui
+# fait tourner le meme jar en boucle (`sleep 300` puis relance), avec le
+# demarrage complet de l'application a chaque tour et une variable
+# d'environnement pour l'empecher de reseeder la base. Ici l'expiration des
+# demandes est un @Scheduled dans le processus qui sert deja l'API, et le jeu
+# de demonstration est une migration Flyway -- donc ni conteneur, ni variable,
+# ni course au demarrage.
+#
+# Les ports sont decales par rapport aux autres POC pour pouvoir lancer
+# plusieurs implementations en meme temps et comparer.
+
+services:
+  # --------------------------------------------------------------------------
+  # PostgreSQL. Flyway joue les migrations au demarrage de l'application.
+  # --------------------------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: secret
+    ports:
+      - "5440:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # --------------------------------------------------------------------------
+  # L'application : API REST, migrations, jeu de demo et tache planifiee.
+  # --------------------------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: docker/quarkus/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_URL: "jdbc:postgresql://db:5432/app"
+      DB_USERNAME: app
+      DB_PASSWORD: secret
+      MAILER_HOST: mailpit
+      MAILER_PORT: 1025
+    ports:
+      - "8100:8080"
+
+  # --------------------------------------------------------------------------
+  # Mailpit : pour voir les mails de promotion depuis la liste d'attente.
+  #   Interface : http://localhost:8030 · SMTP : 1030
+  # --------------------------------------------------------------------------
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "1030:1025"
+      - "8030:8025"
+
+  # --------------------------------------------------------------------------
+  # Le frontend : la meme SPA React que les autres POC, au contrat d'API
+  # identique.
+  # --------------------------------------------------------------------------
+  frontend:
+    image: node:22-alpine
+    working_dir: /app
+    depends_on:
+      - app
+    environment:
+      VITE_API_URL: http://localhost:8100/api
+    ports:
+      - "5180:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: sh -c "npm install && npm run dev -- --host"
+
+volumes:
+  db-data:

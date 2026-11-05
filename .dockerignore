@@ -1,0 +1,8 @@
+# Le contexte de build ne sert qu'a l'image Java : tout le reste l'alourdit
+# pour rien (frontend/node_modules fait plusieurs centaines de Mo).
+.git
+.idea
+target
+frontend
+docker-compose.yml
+README.md
